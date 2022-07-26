@@ -734,7 +734,6 @@ func SubscribeAt(newNs, curNs netns.NsHandle, protocol int, groups ...uint) (*Ne
 
 func (s *NetlinkSocket) Close() {
 	fd := int(atomic.SwapInt32(&s.fd, -1))
-	unix.Shutdown(fd, unix.SHUT_RDWR)
 	unix.Close(fd)
 }
 
@@ -758,6 +757,22 @@ func (s *NetlinkSocket) Receive() ([]syscall.NetlinkMessage, *unix.SockaddrNetli
 	if fd < 0 {
 		return nil, nil, fmt.Errorf("Receive called on a closed socket")
 	}
+
+	fds := []unix.PollFd{
+		{
+			Fd:      int32(fd),
+			Events:  unix.POLLIN | unix.POLLPRI,
+			Revents: 0,
+		},
+	}
+	if n, err := unix.Poll(fds, 500); err != nil {
+		return nil, nil, fmt.Errorf("poll failed: %v", err)
+	} else {
+		if n == 0 {
+			return nil, &unix.SockaddrNetlink{}, nil
+		}
+	}
+
 	var fromAddr *unix.SockaddrNetlink
 	var rb [RECEIVE_BUFFER_SIZE]byte
 	nr, from, err := unix.Recvfrom(fd, rb[:], 0)
